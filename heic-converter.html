@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HEIC 圖片批次轉 JPG 工具</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; font-family: "Microsoft JhengHei", sans-serif; padding: 20px; }
+        .drop-zone {
+            border: 2px dashed #0d6efd; border-radius: 10px; padding: 40px; text-align: center;
+            background: white; cursor: pointer; transition: 0.3s;
+        }
+        .drop-zone:hover { background-color: #e9ecef; }
+        .preview-img { width: 100px; height: 100px; object-fit: cover; border-radius: 5px; }
+        .status-badge { font-size: 0.8em; }
+    </style>
+</head>
+<body>
+
+<div class="container" style="max-width: 800px;">
+    <h3 class="text-center mb-4 fw-bold text-primary">🍏 HEIC 圖片批次轉 JPG 工具</h3>
+    
+    <div class="alert alert-info">
+        <strong>說明：</strong> 所有轉換皆在您的瀏覽器內完成，照片不會上傳到網路，請安心使用。<br>
+        轉檔需要大量運算，若照片超過 50 張建議分批操作。
+    </div>
+
+    <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+        <h4>點擊此處 或 將 HEIC 檔案拖曳至此</h4>
+        <p class="text-muted">支援多選批次轉換</p>
+        <input type="file" id="fileInput" accept=".heic,.HEIC" multiple style="display:none">
+    </div>
+
+    <div class="d-flex justify-content-between align-items-center mt-4">
+        <div>
+            <span id="progressText" class="fw-bold text-secondary">準備就緒</span>
+        </div>
+        <button id="downloadAllBtn" class="btn btn-success disabled" onclick="downloadZip()">
+            📦 下載全部 (ZIP)
+        </button>
+    </div>
+
+    <div class="progress mt-2" style="height: 20px;">
+        <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+    </div>
+
+    <div class="card mt-4">
+        <div class="card-header bg-white fw-bold">轉換清單</div>
+        <div class="card-body p-0">
+            <table class="table table-striped mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th width="15%">預覽</th>
+                        <th>檔名</th>
+                        <th width="15%">狀態</th>
+                        <th width="15%">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="resultBody">
+                    </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+<script>
+    const fileInput = document.getElementById('fileInput');
+    const resultBody = document.getElementById('resultBody');
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    const downloadAllBtn = document.getElementById('downloadAllBtn');
+    
+    let zip = new JSZip();
+    let convertedCount = 0;
+    let totalFiles = 0;
+
+    // 監聽檔案選擇
+    fileInput.addEventListener('change', function(e) {
+        processFiles(e.target.files);
+    });
+
+    // 拖曳支援
+    const dropZone = document.getElementById('dropZone');
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.style.backgroundColor = '#e9ecef'; });
+    dropZone.addEventListener('dragleave', (e) => { e.preventDefault(); dropZone.style.backgroundColor = 'white'; });
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.style.backgroundColor = 'white';
+        processFiles(e.dataTransfer.files);
+    });
+
+    async function processFiles(files) {
+        // 重置狀態
+        resultBody.innerHTML = "";
+        zip = new JSZip();
+        convertedCount = 0;
+        totalFiles = 0;
+        downloadAllBtn.classList.add('disabled');
+        downloadAllBtn.innerText = "📦 下載全部 (ZIP)";
+        
+        // 過濾出 HEIC 檔案
+        let heicFiles = [];
+        for (let i = 0; i < files.length; i++) {
+            if (files[i].name.toLowerCase().endsWith('.heic')) {
+                heicFiles.push(files[i]);
+            }
+        }
+
+        if (heicFiles.length === 0) {
+            alert("請選擇 .heic 格式的圖片檔案");
+            return;
+        }
+
+        totalFiles = heicFiles.length;
+        updateProgress(0);
+
+        // 依序處理 (避免瀏覽器記憶體不足)
+        for (let i = 0; i < heicFiles.length; i++) {
+            await convertHeicToJpg(heicFiles[i], i);
+        }
+
+        // 全部完成
+        progressText.innerText = `✅ 全部完成！共 ${totalFiles} 張`;
+        progressBar.classList.remove('progress-bar-animated');
+        downloadAllBtn.classList.remove('disabled');
+    }
+
+    async function convertHeicToJpg(file, index) {
+        // 建立表格列 (顯示處理中)
+        let newName = file.name.replace(/\.heic$/i, ".jpg");
+        let rowId = `row-${index}`;
+        
+        resultBody.innerHTML += `
+            <tr id="${rowId}">
+                <td><div class="spinner-border spinner-border-sm text-primary"></div></td>
+                <td>${newName}</td>
+                <td><span class="badge bg-secondary">轉換中...</span></td>
+                <td>-</td>
+            </tr>
+        `;
+
+        try {
+            // 呼叫 heic2any 進行轉換
+            const jpgBlob = await heic2any({
+                blob: file,
+                toType: "image/jpeg",
+                quality: 0.8 // 設定 JPG 品質 (0.1 ~ 1.0)
+            });
+
+            // 轉換成功處理
+            let url = URL.createObjectURL(jpgBlob);
+            
+            // 加入 ZIP
+            zip.file(newName, jpgBlob);
+
+            // 更新表格 UI
+            let row = document.getElementById(rowId);
+            row.innerHTML = `
+                <td><img src="${url}" class="preview-img" alt="preview"></td>
+                <td>${newName}</td>
+                <td><span class="badge bg-success">成功</span></td>
+                <td><a href="${url}" download="${newName}" class="btn btn-sm btn-outline-primary">下載</a></td>
+            `;
+
+        } catch (err) {
+            console.error(err);
+            let row = document.getElementById(rowId);
+            row.innerHTML = `
+                <td>❌</td>
+                <td>${file.name}</td>
+                <td><span class="badge bg-danger">失敗</span></td>
+                <td>-</td>
+            `;
+        }
+
+        // 更新進度
+        convertedCount++;
+        updateProgress(Math.round((convertedCount / totalFiles) * 100));
+    }
+
+    function updateProgress(percent) {
+        progressBar.style.width = percent + "%";
+        progressBar.innerText = percent + "%";
+        progressText.innerText = `正在轉換 (${convertedCount}/${totalFiles})...`;
+    }
+
+    function downloadZip() {
+        if (totalFiles === 0) return;
+        downloadAllBtn.innerText = "壓縮中...";
+        zip.generateAsync({type:"blob"}).then(function(content) {
+            saveAs(content, "converted_photos.zip");
+            downloadAllBtn.innerText = "📦 下載全部 (ZIP)";
+        });
+    }
+</script>
+
+</body>
+</html>
